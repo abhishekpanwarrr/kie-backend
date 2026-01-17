@@ -1,0 +1,278 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  password_hash     String
+  first_name        String?
+  last_name         String?
+  phone             String?
+  avatar_url        String?
+  is_email_verified Boolean   @default(false)
+  is_active         Boolean   @default(true)
+  role              String    @default("customer")
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  last_login        DateTime?
+
+  // 🔁 REQUIRED reverse relations
+  addresses UserAddress[]
+  orders    Order[]
+  reviews   Review[]
+  wishlist  WishlistItem[]
+  cart      CartItem[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model UserAddress {
+  id            String   @id @default(uuid())
+  user_id       String
+  address_type  String   @default("home")
+  address_line1 String
+  address_line2 String?
+  city          String
+  state         String?
+  country       String
+  postal_code   String
+  is_default    Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  // Relations
+  user           User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  shipped_orders Order[] @relation("ShippingAddress") // Fixed: changed from duplicate 'orders' to 'shipped_orders'
+  billed_orders  Order[] @relation("BillingAddress") // Fixed: changed from duplicate 'orders' to 'billed_orders'
+
+  @@index([user_id])
+  @@map("user_addresses")
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  parent_id   String?
+  image_url   String?
+  is_active   Boolean  @default(true)
+  sort_order  Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  parent   Category?  @relation("CategoryToCategory", fields: [parent_id], references: [id])
+  children Category[] @relation("CategoryToCategory")
+  products Product[]
+
+  @@index([parent_id])
+  @@index([slug])
+  @@map("categories")
+}
+
+model Product {
+  id                  String    @id @default(uuid())
+  sku                 String    @unique
+  name                String
+  slug                String    @unique
+  description         String?
+  short_description   String?
+  category_id         String?
+  brand               String?
+  base_price          Decimal   @db.Decimal(10, 2)
+  discount_price      Decimal?  @db.Decimal(10, 2)
+  discount_percent    Int?      @default(0)
+  cost_price          Decimal?  @db.Decimal(10, 2)
+  is_active           Boolean   @default(true)
+  is_featured         Boolean   @default(false)
+  is_in_stock         Boolean   @default(true)
+  low_stock_threshold Int       @default(10)
+  rating              Decimal   @default(0) @db.Decimal(3, 2)
+  review_count        Int       @default(0)
+  sold_count          Int       @default(0)
+  weight              Decimal?  @db.Decimal(8, 2)
+  dimensions          Json?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  published_at        DateTime?
+
+  // Relations
+  category       Category?        @relation(fields: [category_id], references: [id])
+  variants       ProductVariant[]
+  images         ProductImage[]
+  reviews        Review[]
+  order_items    OrderItem[]
+  wishlist_items WishlistItem[]
+  cart_items     CartItem[]
+
+  @@index([category_id])
+  @@index([slug])
+  @@index([is_active])
+  @@map("products")
+}
+
+model ProductVariant {
+  id             String   @id @default(uuid())
+  product_id     String
+  sku            String   @unique
+  variant_name   String?
+  attributes     Json
+  price          Decimal? @db.Decimal(10, 2)
+  stock_quantity Int      @default(0)
+  image_url      String?
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  // Relations
+  product    Product        @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  images     ProductImage[]
+  orderItems OrderItem[]
+  cartItems  CartItem[]
+
+  @@index([product_id])
+  @@map("product_variants")
+}
+
+model ProductImage {
+  id         String   @id @default(uuid())
+  product_id String
+  variant_id String?
+  image_url  String
+  alt_text   String?
+  sort_order Int      @default(0)
+  is_primary Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  // Relations
+  product Product         @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id])
+  @@map("product_images")
+}
+
+// Additional models you might need (not in your SQL but common for e-commerce)
+
+model Order {
+  id                  String   @id @default(uuid())
+  order_number        String   @unique
+  user_id             String
+  status              String   @default("pending") // pending, processing, shipped, delivered, cancelled
+  subtotal            Decimal  @db.Decimal(10, 2)
+  tax                 Decimal  @default(0) @db.Decimal(10, 2)
+  shipping            Decimal  @default(0) @db.Decimal(10, 2)
+  total               Decimal  @db.Decimal(10, 2)
+  shipping_address_id String
+  billing_address_id  String
+  payment_method      String
+  payment_status      String   @default("pending")
+  notes               String?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  // Relations
+  user             User        @relation(fields: [user_id], references: [id])
+  shipping_address UserAddress @relation("ShippingAddress", fields: [shipping_address_id], references: [id])
+  billing_address  UserAddress @relation("BillingAddress", fields: [billing_address_id], references: [id])
+  items            OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id              String   @id @default(uuid())
+  order_id        String
+  product_id      String
+  variant_id      String?
+  quantity        Int      @default(1)
+  price           Decimal  @db.Decimal(10, 2)
+  discount_amount Decimal  @default(0) @db.Decimal(10, 2)
+  total           Decimal  @db.Decimal(10, 2)
+  created_at      DateTime @default(now())
+
+  // Relations
+  order   Order           @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [product_id], references: [id])
+  variant ProductVariant? @relation(fields: [variant_id], references: [id])
+
+  @@map("order_items")
+}
+
+model Review {
+  id          String   @id @default(uuid())
+  product_id  String
+  user_id     String
+  rating      Int      @default(5)
+  title       String?
+  comment     String?
+  is_approved Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("reviews")
+}
+
+model WishlistItem {
+  id         String   @id @default(uuid())
+  user_id    String
+  product_id String
+  created_at DateTime @default(now())
+
+  // Relations
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, product_id])
+  @@map("wishlist_items")
+}
+
+model CartItem {
+  id         String   @id @default(uuid())
+  user_id    String
+  product_id String
+  variant_id String?
+  quantity   Int      @default(1)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  user    User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [product_id], references: [id])
+  variant ProductVariant? @relation(fields: [variant_id], references: [id])
+
+  @@map("cart_items")
+}
+
+model PasswordResetOtp {
+  id        String   @id @default(uuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+model EmailVerificationOtp {
+  id        String   @id @default(uuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
